@@ -1,5 +1,5 @@
 ---
-name: feishu-doc-distiller
+name: feishu-doc-clone
 description: 飞书文档蒸馏助手：将飞书或 Lark 云文档、知识库文档高保真复制到用户自己的文档空间，保留正文结构、代码块和图片；适用于无复制权限、跨空间迁移、文档沉淀和资料再整理场景。
 ---
 

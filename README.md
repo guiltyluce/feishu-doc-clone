@@ -1,6 +1,6 @@
-# 飞书文档蒸馏助手 / feishu-doc-distiller
+# 飞书文档蒸馏助手 / feishu-doc-clone
 
-`feishu-doc-distiller` 是一个用于飞书/Lark 文档高保真迁移的 Skill。它会把分享文档、知识库页面或受限文档整理成用户自己空间里的可编辑副本，尽量保留正文结构、图片、表格和代码块。
+`feishu-doc-clone` 是一个用于飞书/Lark 文档高保真迁移的 Skill。它会把分享文档、知识库页面或受限文档整理成用户自己空间里的可编辑副本，尽量保留正文结构、图片、表格和代码块。
 
 “蒸馏”在这里指把原文中真正有用的结构与内容提取出来，重新沉淀成可编辑、可归档、可继续协作的文档。
 
@@ -34,9 +34,9 @@
 │   ├── extract_plan.py
 │   └── validate_skill_package.py
 └── skill/
-    └── feishu-doc-distiller/
+    └── feishu-doc-clone/
         ├── SKILL.md
-        └── feishu-doc-distiller.zip
+        └── feishu-doc-clone.zip
 ```
 
 ## 快速检查
@@ -52,14 +52,14 @@ python3 scripts/compare_clone.py --help
 参赛上传包位置：
 
 ```text
-skill/feishu-doc-distiller/feishu-doc-distiller.zip
+skill/feishu-doc-clone/feishu-doc-clone.zip
 ```
 
 安装到本地 Skill 目录：
 
 ```bash
 mkdir -p ~/.codex/skills
-unzip -o skill/feishu-doc-distiller/feishu-doc-distiller.zip -d ~/.codex/skills/
+unzip -o skill/feishu-doc-clone/feishu-doc-clone.zip -d ~/.codex/skills/
 ```
 
 ## 参赛信息
