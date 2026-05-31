@@ -49,7 +49,7 @@ python3 scripts/compare_clone.py --help
 
 ## Skill 安装
 
-参赛上传包位置：
+Skill 分发包位置：
 
 ```text
 skill/feishu-doc-clone/feishu-doc-clone.zip
@@ -61,14 +61,6 @@ skill/feishu-doc-clone/feishu-doc-clone.zip
 mkdir -p ~/.codex/skills
 unzip -o skill/feishu-doc-clone/feishu-doc-clone.zip -d ~/.codex/skills/
 ```
-
-## 参赛信息
-
-- 作品名称：飞书文档蒸馏助手
-- 推荐赛道：Skill 技能赛道
-- 推荐行业：专业服务
-- 推荐场景：办公提效
-- 一句话描述：将受限飞书文档高保真蒸馏为自己的可编辑副本。
 
 ## License
 
