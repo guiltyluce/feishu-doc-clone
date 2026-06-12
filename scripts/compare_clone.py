@@ -96,6 +96,11 @@ def main() -> None:
         action="store_true",
         help="Also fail when any non-image kind (file/whiteboard/sheet/bitable/iframe) lost count",
     )
+    parser.add_argument(
+        "--fills",
+        help="Fills JSON given to assemble_markdown.py; their text is deliberately "
+        "added to the clone and is excluded from the text comparison",
+    )
     args = parser.parse_args()
 
     source = load_markdown(args.source)
@@ -120,6 +125,15 @@ def main() -> None:
     final_counts = kind_counts(final)
     source_text = stripped(source)
     final_text = stripped(final)
+    if args.fills:
+        for item in json.loads(Path(args.fills).read_text(encoding="utf-8")):
+            fill_text = stripped(item["markdown"])
+            # fetch 可能把 [text](url) 渲染成纯链接文本，两种形态都剔除
+            link_label = stripped(re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", item["markdown"]))
+            for candidate in (fill_text, link_label):
+                if candidate and candidate in final_text:
+                    final_text = final_text.replace(candidate, "", 1)
+                    break
 
     expected_images = args.expect_images if args.expect_images is not None else source_counts.get("image", 0)
     images_ok = final_counts.get("image", 0) >= expected_images

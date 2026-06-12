@@ -31,9 +31,14 @@ EMOJI_NAMES = {
     "books": "📚", "clipboard": "📋", "calendar": "📅", "bug": "🐛",
     "package": "📦", "thumbsup": "👍", "point_right": "👉", "heart": "❤️",
     "information_source": "ℹ️", "speech_balloon": "💬", "no_entry": "⛔",
-    "stop_sign": "🛑", "triangular_flag_on_post": "🚩",
+    "stop_sign": "🛑", "triangular_flag_on_post": "🚩", "checkered_flag": "🏁",
+    "trophy": "🏆", "round_pushpin": "📍", "label": "🏷️", "pencil": "✏️",
+    "hourglass": "⌛", "alarm_clock": "⏰", "telephone": "☎️", "email": "📧",
+    "chart_with_upwards_trend": "📈", "chart_with_downwards_trend": "📉",
 }
 CALLOUT_EMOJI_RE = re.compile(r'(<callout\b[^<>]*?)\s*emoji="([A-Za-z0-9_+\-]+)"', re.IGNORECASE)
+# create API silently drops light-X border colors; only the solid names stick.
+CALLOUT_BORDER_RE = re.compile(r'(<callout\b[^<>]*?border-color=")light-([a-z]+")', re.IGNORECASE)
 
 
 def fix_callout_emoji(markdown: str) -> str:
@@ -43,7 +48,8 @@ def fix_callout_emoji(markdown: str) -> str:
             return f'{match.group(1)} emoji="{char}"'
         return match.group(1)
 
-    return CALLOUT_EMOJI_RE.sub(repl, markdown)
+    markdown = CALLOUT_EMOJI_RE.sub(repl, markdown)
+    return CALLOUT_BORDER_RE.sub(r"\1\2", markdown)
 
 
 CONTAINER_OPEN_RE = re.compile(r"<(callout|grid|column)\b[^<>]*(?<!/)>", re.IGNORECASE)
@@ -107,8 +113,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", required=True, help="Plan JSON from extract_plan.py")
     parser.add_argument("--token-map", required=True, help="JSON mapping source token -> uploaded token")
+    parser.add_argument(
+        "--fills",
+        help="JSON list of {index, markdown} to emit for unsupported media items "
+        "(e.g. bookmark cards degraded to links extracted via browser)",
+    )
     parser.add_argument("--out", required=True, help="Markdown file to write")
     args = parser.parse_args()
+
+    fills: dict[int, str] = {}
+    if args.fills:
+        for item in json.loads(Path(args.fills).read_text(encoding="utf-8")):
+            fills[int(item["index"])] = item["markdown"]
 
     plan = json.loads(Path(args.plan).read_text(encoding="utf-8"))
     parts = plan["parts"]
@@ -144,6 +160,8 @@ def main() -> None:
                 gaps.append({"kind": item["kind"], "token": item["token"], "reason": "no snapshot uploaded"})
         elif migration == "passthrough":
             output.append(item["tag"])
+        elif item["index"] in fills:
+            output.append(fills[item["index"]])
         else:  # append / unsupported: handled outside the inline markdown
             gaps.append(
                 {

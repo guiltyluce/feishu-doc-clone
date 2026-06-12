@@ -45,16 +45,18 @@ GitHub: [guiltyluce/feishu-doc-clone](https://github.com/guiltyluce/feishu-doc-c
    - 用 `lark-cli docs +fetch --as user --format json` 获取源文档结构。
    - 用 `scripts/extract_plan.py` 拆出正文、图片和各类媒体块。输出中的 `upload_tokens` 是需要重传的图片/画板 token，`gaps` 是 markdown 通道带不过去的块。
    - 当飞书媒体下载失败时，按 `references/browser-image-extraction.md` 使用已登录浏览器提取可见图片；缺哪张就定位补抓哪张，直到与 `upload_tokens` 数量对齐或确认抓不到。
-   - 画板按图片快照处理：用 `docs +media-download` 下载画板缩略图，与普通图片一起重传，并向用户说明"画板已转为静态快照"。
+   - 画板按图片快照处理：用 `docs +media-download --type whiteboard` 下载缩略图，**必须先用 `scripts/trim_snapshot.py` 裁掉空白边**（缩略图是固定 2560×2560 方图，内容只占一角，不裁会在文档里留大片空白），再与普通图片一起重传，并向用户说明"画板已转为静态快照"。
+   - 书签卡片等 `unsupported_block` 块：用登录浏览器在源文档定位（DOM 类名如 `docx-bookmark-block`），提取链接和标题，构造 fills JSON（`[{"index": N, "markdown": "[标题](url)"}]`）传给 assemble 的 `--fills`，降级为可点击链接而不是直接丢弃。
    - 将图片逐张上传到临时文档，**每上传一张就记录 `{"source_token": "...", "file_token": "..."}` 映射**（media-insert 输出里有 file_token），汇总成 token map JSON。禁止只记顺序——重试一次顺序就错位。
-   - 用 `scripts/assemble_markdown.py --plan ... --token-map ... --out ...` 生成最终 Markdown。脚本会校验映射完整性，缺映射会报错列出缺哪些 token；同时自动做两项平台适配：顶层块之间补空行（fetch 导出单换行紧凑格式，直接回灌 create 会把段落合并、结构错乱），callout 的 emoji 名称转为 emoji 字符（名称形式会让 callout 内全部行内样式解析失效）。
+   - 用 `scripts/assemble_markdown.py --plan ... --token-map ... [--fills ...] --out ...` 生成最终 Markdown。脚本会校验映射完整性，缺映射会报错列出缺哪些 token；同时自动做三项平台适配：顶层块之间补空行（fetch 导出单换行紧凑格式，直接回灌 create 会把段落合并、结构错乱），callout 的 emoji 名称转为 emoji 字符（名称形式会让 callout 内全部行内样式解析失效），callout 的 `border-color="light-X"` 转为 `"X"`（create 会静默丢弃 light 值导致副本没边框）。
 6. 创建文档（防截断）：
    - 用 `scripts/split_markdown.py --in final.md --out-dir /tmp/chunks` 安全分块（不会切断代码围栏和表格）。
    - 只有一块时直接 `docs +create`；多块时先 `docs +create` 首块，再按顺序 `docs +update --mode append` 追加其余块。
    - 附件类块（`<file>`）在文档创建后用 `docs +media-insert --doc <new_doc_id> --file <下载的附件> --type file` 重新插入（位置在文末，需向用户说明）。
+   - 创建完成后**必须**运行 `scripts/repair_styles.py --source-blocks <源blocks.json> --doc <新doc_id>` 修复平台 bug：callout 内行首加粗会被 create 降级为字面 `**` 并把相邻行合并成一个块；脚本会按源块逐一 PATCH 样式、拆开被合并的块。
 7. 验证结果（不通过不得宣告成功）：
    - 重新 fetch 目标文档。
-   - 运行 `scripts/compare_clone.py --source ... --final ... --expect-images <N>`，其中 N = 源图片数 + 已快照的画板数。
+   - 运行 `scripts/compare_clone.py --source ... --final ... --expect-images <N> [--fills ...]`，其中 N = 源图片数 + 已快照的画板数；用了 fills 时必须把同一份 fills 传给 compare（填充的链接文本属于刻意新增）。
    - 脚本对代码块不一致、正文不一致（含截断，会定位首个分歧位置）、图片数不足**任一情况都会非零退出**。
    - 退出非零时必须排查修复或向用户报告具体缺口；`media_gaps` 中列出的电子表格、多维表等不可迁移块，要逐项告知用户原文位置和处理建议。
 
@@ -102,9 +104,8 @@ python3 scripts/compare_clone.py \
 
 # 已知平台转换限制（向用户如实说明，不算克隆失败）
 
-- callout 的 `border-color` 属性：create API 不保留，副本只有背景色（compare 的 `style_diffs` 会列出）。
-- callout 内**行首**的加粗（`**xx**` 在行首）：create API 会降级为字面 `**` 文本；行中加粗正常。需要严格保真时，可在创建后用 blocks PATCH 修复该文本块样式，或提示用户手动加粗。
-- 电子表格、多维表、画板原件、未知类型块（fetch 中的 `<!-- Unsupported block type -->`）无法迁移；画板以静态图片快照代替。
+- 电子表格、多维表、画板原件无法迁移；画板以静态图片快照代替（已裁边），书签卡片降级为普通链接（预览卡片样式丢失，用户可在 UI 中手动切回卡片视图）。
+- callout 行首加粗、border-color、emoji、段落合并等 create API 缺陷已由 assemble 预处理 + repair_styles 后处理自动修复，无需人工干预；如 repair_styles 报 skipped，需把未修复块明确告知用户。
 
 # 注意事项
 
