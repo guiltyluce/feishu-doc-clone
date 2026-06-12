@@ -14,7 +14,11 @@ from typing import Any
 
 
 TAG_RE = re.compile(r"<(image|file|whiteboard|sheet|bitable|iframe)\b[^<>]*?/?>", re.IGNORECASE)
+UNSUPPORTED_RE = re.compile(r"<!--\s*Unsupported block type: \d+\s*-->", re.IGNORECASE)
 CODE_RE = re.compile(r"```([^\n]*)\n([\s\S]*?)```")
+# Styled containers whose attributes Feishu normalizes on create (e.g. callout
+# loses border-color). Attribute drift is reported, not fatal; inner text stays strict.
+STYLE_TAG_RE = re.compile(r"<(callout)\b[^<>]*>", re.IGNORECASE)
 
 
 def load_markdown(path: str) -> str:
@@ -35,12 +39,30 @@ def kind_counts(markdown: str) -> dict[str, int]:
     for match in TAG_RE.finditer(markdown):
         kind = match.group(1).lower()
         counts[kind] = counts.get(kind, 0) + 1
+    unsupported = len(UNSUPPORTED_RE.findall(markdown))
+    if unsupported:
+        counts["unsupported_block"] = unsupported
     return counts
 
 
 def stripped(markdown: str) -> str:
+    """Normalize for content comparison: drop media tags, style attrs, and
+    collapse whitespace (Feishu's create/fetch round-trip rewrites blank
+    lines). Any missing character still fails; truncation is still located."""
     text = TAG_RE.sub("", markdown).replace("\r\n", "\n")
-    return re.sub(r"\n{3,}", "\n\n", text).strip()
+    text = UNSUPPORTED_RE.sub("", text)
+    text = STYLE_TAG_RE.sub(lambda m: f"<{m.group(1).lower()}>", text)
+    return re.sub(r"\s+", "", text)
+
+
+def style_diffs(source: str, final: str) -> list[dict[str, str]]:
+    src_tags = [m.group(0) for m in STYLE_TAG_RE.finditer(source)]
+    dst_tags = [m.group(0) for m in STYLE_TAG_RE.finditer(final)]
+    diffs = []
+    for index, (src, dst) in enumerate(zip(src_tags, dst_tags), start=1):
+        if src != dst:
+            diffs.append({"index": index, "source": src, "final": dst})
+    return diffs
 
 
 def first_divergence(a: str, b: str) -> dict[str, Any]:
@@ -122,6 +144,7 @@ def main() -> None:
         "source_code_blocks": len(source_blocks),
         "final_code_blocks": len(final_blocks),
         "media_gaps": media_gaps,
+        "style_diffs": style_diffs(source, final)[:10],
         "code_mismatches": mismatches[:10],
     }
     if not text_ok:

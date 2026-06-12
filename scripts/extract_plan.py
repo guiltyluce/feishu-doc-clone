@@ -13,7 +13,11 @@ import re
 from pathlib import Path
 
 
-TAG_RE = re.compile(r"<(image|file|whiteboard|sheet|bitable|iframe)\b([^<>]*?)/?>", re.IGNORECASE)
+TAG_RE = re.compile(
+    r"<(image|file|whiteboard|sheet|bitable|iframe)\b([^<>]*?)/?>"
+    r"|<!--\s*Unsupported block type: (\d+)\s*-->",
+    re.IGNORECASE,
+)
 ATTR_RE = re.compile(r'([\w-]+)="([^"]*)"')
 
 # How each tag kind travels through the markdown rebuild pipeline:
@@ -48,8 +52,13 @@ def main() -> None:
     media = []
     last = 0
     for match in TAG_RE.finditer(markdown):
-        kind = match.group(1).lower()
-        attrs = dict(ATTR_RE.findall(match.group(2)))
+        if match.group(3):  # <!-- Unsupported block type: N -->
+            kind = f"unsupported_block_{match.group(3)}"
+            attrs = {}
+            MIGRATION.setdefault(kind, "unsupported")
+        else:
+            kind = match.group(1).lower()
+            attrs = dict(ATTR_RE.findall(match.group(2)))
         parts.append(markdown[last : match.start()])
         media.append(
             {

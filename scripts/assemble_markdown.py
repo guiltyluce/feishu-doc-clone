@@ -9,7 +9,73 @@ extra upload must never silently shift images onto the wrong slots.
 
 import argparse
 import json
+import re
 from pathlib import Path
+
+
+# Feishu's fetch emits compact markdown (single \n between blocks), but its
+# create API merges \n-separated lines into one block — paragraphs collapse
+# and structure drifts. Top-level blocks must be re-separated with blank
+# lines. Inside containers (callout/grid/column) single \n round-trips
+# correctly and must be kept.
+# Feishu's fetch writes callout emoji as a name ("bulb"), but create only
+# accepts the emoji character — a name silently disables ALL inline markdown
+# parsing inside that callout (bold becomes literal **). Translate known
+# names; drop the attribute for unknown ones so formatting survives.
+EMOJI_NAMES = {
+    "bulb": "💡", "white_check_mark": "✅", "pushpin": "📌", "warning": "⚠️",
+    "x": "❌", "exclamation": "❗", "question": "❓", "fire": "🔥",
+    "star": "⭐", "memo": "📝", "bell": "🔔", "rocket": "🚀", "eyes": "👀",
+    "dart": "🎯", "bookmark": "🔖", "link": "🔗", "lock": "🔒", "key": "🔑",
+    "gear": "⚙️", "zap": "⚡", "tada": "🎉", "sparkles": "✨", "mag": "🔍",
+    "books": "📚", "clipboard": "📋", "calendar": "📅", "bug": "🐛",
+    "package": "📦", "thumbsup": "👍", "point_right": "👉", "heart": "❤️",
+    "information_source": "ℹ️", "speech_balloon": "💬", "no_entry": "⛔",
+    "stop_sign": "🛑", "triangular_flag_on_post": "🚩",
+}
+CALLOUT_EMOJI_RE = re.compile(r'(<callout\b[^<>]*?)\s*emoji="([A-Za-z0-9_+\-]+)"', re.IGNORECASE)
+
+
+def fix_callout_emoji(markdown: str) -> str:
+    def repl(match: re.Match) -> str:
+        char = EMOJI_NAMES.get(match.group(2).lower())
+        if char:
+            return f'{match.group(1)} emoji="{char}"'
+        return match.group(1)
+
+    return CALLOUT_EMOJI_RE.sub(repl, markdown)
+
+
+CONTAINER_OPEN_RE = re.compile(r"<(callout|grid|column)\b[^<>]*(?<!/)>", re.IGNORECASE)
+CONTAINER_CLOSE_RE = re.compile(r"</(callout|grid|column)>", re.IGNORECASE)
+LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+]\s|\d+[.)]\s|>\s?)")
+TABLE_ROW_RE = re.compile(r"^\s*\|")
+
+
+def normalize_block_breaks(markdown: str) -> str:
+    lines = markdown.split("\n")
+    out: list[str] = []
+    fence = False
+    depth = 0
+    for index, line in enumerate(lines):
+        s = line.lstrip()
+        if s.startswith("```") or s.startswith("~~~"):
+            fence = not fence
+        if not fence:
+            depth += len(CONTAINER_OPEN_RE.findall(line)) - len(CONTAINER_CLOSE_RE.findall(line))
+            depth = max(depth, 0)
+        out.append(line)
+        if fence or depth > 0 or index + 1 >= len(lines):
+            continue
+        nxt = lines[index + 1]
+        if not line.strip() or not nxt.strip():
+            continue
+        if TABLE_ROW_RE.match(line) and TABLE_ROW_RE.match(nxt):
+            continue
+        if LIST_ITEM_RE.match(line) and LIST_ITEM_RE.match(nxt):
+            continue
+        out.append("")
+    return "\n".join(out)
 
 
 def load_token_map(path: str) -> dict[str, str]:
@@ -89,7 +155,9 @@ def main() -> None:
             )
         output.append(next_part)
 
-    Path(args.out).write_text("".join(output), encoding="utf-8")
+    Path(args.out).write_text(
+        fix_callout_emoji(normalize_block_breaks("".join(output))), encoding="utf-8"
+    )
     print(
         json.dumps(
             {"images": emitted_images, "gaps": gaps, "out": args.out},

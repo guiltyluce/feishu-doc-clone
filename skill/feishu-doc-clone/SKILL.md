@@ -47,7 +47,7 @@ GitHub: [guiltyluce/feishu-doc-clone](https://github.com/guiltyluce/feishu-doc-c
    - 当飞书媒体下载失败时，按 `references/browser-image-extraction.md` 使用已登录浏览器提取可见图片；缺哪张就定位补抓哪张，直到与 `upload_tokens` 数量对齐或确认抓不到。
    - 画板按图片快照处理：用 `docs +media-download` 下载画板缩略图，与普通图片一起重传，并向用户说明"画板已转为静态快照"。
    - 将图片逐张上传到临时文档，**每上传一张就记录 `{"source_token": "...", "file_token": "..."}` 映射**（media-insert 输出里有 file_token），汇总成 token map JSON。禁止只记顺序——重试一次顺序就错位。
-   - 用 `scripts/assemble_markdown.py --plan ... --token-map ... --out ...` 生成最终 Markdown。脚本会校验映射完整性，缺映射会报错列出缺哪些 token。
+   - 用 `scripts/assemble_markdown.py --plan ... --token-map ... --out ...` 生成最终 Markdown。脚本会校验映射完整性，缺映射会报错列出缺哪些 token；同时自动做两项平台适配：顶层块之间补空行（fetch 导出单换行紧凑格式，直接回灌 create 会把段落合并、结构错乱），callout 的 emoji 名称转为 emoji 字符（名称形式会让 callout 内全部行内样式解析失效）。
 6. 创建文档（防截断）：
    - 用 `scripts/split_markdown.py --in final.md --out-dir /tmp/chunks` 安全分块（不会切断代码围栏和表格）。
    - 只有一块时直接 `docs +create`；多块时先 `docs +create` 首块，再按顺序 `docs +update --mode append` 追加其余块。
@@ -99,6 +99,12 @@ python3 scripts/compare_clone.py \
   --final /tmp/final.json \
   --expect-images 5
 ```
+
+# 已知平台转换限制（向用户如实说明，不算克隆失败）
+
+- callout 的 `border-color` 属性：create API 不保留，副本只有背景色（compare 的 `style_diffs` 会列出）。
+- callout 内**行首**的加粗（`**xx**` 在行首）：create API 会降级为字面 `**` 文本；行中加粗正常。需要严格保真时，可在创建后用 blocks PATCH 修复该文本块样式，或提示用户手动加粗。
+- 电子表格、多维表、画板原件、未知类型块（fetch 中的 `<!-- Unsupported block type -->`）无法迁移；画板以静态图片快照代替。
 
 # 注意事项
 
