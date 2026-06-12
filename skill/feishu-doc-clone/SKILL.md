@@ -47,11 +47,13 @@ GitHub: [guiltyluce/feishu-doc-clone](https://github.com/guiltyluce/feishu-doc-c
    - 当飞书媒体下载失败时，按 `references/browser-image-extraction.md` 使用已登录浏览器提取可见图片；缺哪张就定位补抓哪张，直到与 `upload_tokens` 数量对齐或确认抓不到。
    - 画板按图片快照处理：用 `docs +media-download --type whiteboard` 下载缩略图，**必须先用 `scripts/trim_snapshot.py` 裁掉空白边**（缩略图是固定 2560×2560 方图，内容只占一角，不裁会在文档里留大片空白），再与普通图片一起重传，并向用户说明"画板已转为静态快照"。
    - 书签卡片等 `unsupported_block` 块：用登录浏览器在源文档定位（DOM 类名如 `docx-bookmark-block`），提取链接和标题，构造 fills JSON（`[{"index": N, "markdown": "[标题](url)"}]`）传给 assemble 的 `--fills`，降级为可点击链接而不是直接丢弃。
-   - 将图片逐张上传到临时文档，**每上传一张就记录 `{"source_token": "...", "file_token": "..."}` 映射**（media-insert 输出里有 file_token），汇总成 token map JSON。禁止只记顺序——重试一次顺序就错位。
+   - **不要创建独立的暂存文档**——先用占位正文创建目标文档，用 `docs +media-insert --doc <目标doc_id>` 把图片直接传进目标文档，全程零额外文档。**每上传一张就记录 `{"source_token": "...", "file_token": "..."}` 映射**（输出里有 file_token 和 block_id，block_id 留作后续清理），汇总成 token map JSON。禁止只记顺序——重试一次顺序就错位。
+   - 媒体所有权背景（已实测）：media-insert 的 token 属于宿主文档，宿主删除则 token 失效；而 create/append 摄入 `<image token>` 时会把媒体**复制**进目标文档并分配新 token。所以即便用了暂存文档，成品验证通过后暂存也可以删，但直接传目标文档更省事。
    - 用 `scripts/assemble_markdown.py --plan ... --token-map ... [--fills ...] --out ...` 生成最终 Markdown。脚本会校验映射完整性，缺映射会报错列出缺哪些 token；同时自动做三项平台适配：顶层块之间补空行（fetch 导出单换行紧凑格式，直接回灌 create 会把段落合并、结构错乱），callout 的 emoji 名称转为 emoji 字符（名称形式会让 callout 内全部行内样式解析失效），callout 的 `border-color="light-X"` 转为 `"X"`（create 会静默丢弃 light 值导致副本没边框）。
-6. 创建文档（防截断）：
+6. 写入正文（防截断）：
    - 用 `scripts/split_markdown.py --in final.md --out-dir /tmp/chunks` 安全分块（不会切断代码围栏和表格）。
-   - 只有一块时直接 `docs +create`；多块时先 `docs +create` 首块，再按顺序 `docs +update --mode append` 追加其余块。
+   - 按顺序 `docs +update --mode append` 把各块追加到第 5 步创建的目标文档。
+   - 正文写完后，用 blocks `children/batch_delete` 删掉文档开头的占位正文块和 media-insert 留下的多余媒体块（同文档内删块不影响 token 存活，已验证）。
    - 附件类块（`<file>`）在文档创建后用 `docs +media-insert --doc <new_doc_id> --file <下载的附件> --type file` 重新插入（位置在文末，需向用户说明）。
    - 创建完成后**必须**运行 `scripts/repair_styles.py --source-blocks <源blocks.json> --doc <新doc_id>` 修复平台 bug：callout 内行首加粗会被 create 降级为字面 `**` 并把相邻行合并成一个块；脚本会按源块逐一 PATCH 样式、拆开被合并的块。
 7. 验证结果（不通过不得宣告成功）：
@@ -110,6 +112,7 @@ python3 scripts/compare_clone.py \
 # 注意事项
 
 - 默认使用用户身份 `--as user`。
+- **不留噪音**：整个流程只产生最终文档这一个产物。验证失败需要重建时，先用 `lark-cli api DELETE /open-apis/drive/v1/files/<doc_id> --params '{"type":"docx"}'` 删除废弃文档再重走流程；成品的媒体在 create 时已复制为自有 token，删除中间文档不影响成品（已验证）。调试性试验一律不建真实文档，确需建的用 `[mini]` 前缀并当场删除。
 - 不打印 app secret、tenant token、图片下载签名或临时鉴权 URL。
 - 不把源文档图片、下载文件、fetch JSON 或临时日志提交到 git。
 - 图片无法直接下载时，优先使用浏览器可见内容提取；仍失败时说明缺口。
