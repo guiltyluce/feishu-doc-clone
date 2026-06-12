@@ -18,9 +18,11 @@ In Chinese, "distillation" here means extracting useful structure and content fr
 - Resolve Feishu docs, docx documents, and wiki-backed documents.
 - Try official copy APIs first.
 - Rebuild with fetched JSON and Markdown when copy is blocked.
-- Extract browser-visible images when direct media download is blocked.
-- Re-upload images and replace them with target-document media tokens.
-- Compare source and target documents and report fidelity checks.
+- Inventory source block types before rebuilding; attachments, whiteboards, and sheets are never dropped silently.
+- Extract browser-visible images when direct media download is blocked, with targeted retries for missing ones.
+- Re-upload images via an explicit token map; whiteboards become static snapshots, attachments are re-inserted.
+- Split long documents into safe chunks to avoid single-call truncation.
+- Compare source and target documents: any gap in code blocks, body text (with truncation locating), or image count fails the check.
 
 ## Repository Layout
 
@@ -34,6 +36,10 @@ In Chinese, "distillation" here means extracting useful structure and content fr
 │   ├── assemble_markdown.py
 │   ├── compare_clone.py
 │   ├── extract_plan.py
+│   ├── inventory_blocks.py
+│   ├── split_markdown.py
+│   ├── install.sh
+│   ├── package.sh
 │   └── validate_skill_package.py
 └── skill/
     └── feishu-doc-clone/
@@ -45,23 +51,23 @@ In Chinese, "distillation" here means extracting useful structure and content fr
 
 ```bash
 python3 scripts/validate_skill_package.py --zip
-python3 -m py_compile scripts/assemble_markdown.py scripts/compare_clone.py scripts/extract_plan.py
 python3 scripts/compare_clone.py --help
 ```
 
 ## Skill Installation
 
-The distributable Skill package is located at:
+SKILL.md is a cross-agent standard; the same package works in multiple environments.
 
-```text
-skill/feishu-doc-clone/feishu-doc-clone.zip
-```
-
-Install it into the local Skill directory:
+Local CLIs (installs into Claude Code `~/.claude/skills/` and Codex `~/.codex/skills/`):
 
 ```bash
-mkdir -p ~/.codex/skills
-unzip -o skill/feishu-doc-clone/feishu-doc-clone.zip -d ~/.codex/skills/
+bash scripts/install.sh
+```
+
+Upload-style platforms (claude.ai Skills, WorkBuddy, etc.): upload the rebuilt package
+
+```bash
+bash scripts/package.sh   # rebuilds skill/feishu-doc-clone/feishu-doc-clone.zip
 ```
 
 ## License

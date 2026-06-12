@@ -18,9 +18,11 @@
 - 解析飞书文档、docx 和 wiki-backed doc。
 - 优先尝试官方复制接口。
 - 复制失败时使用 fetch JSON + Markdown 重建。
-- 图片无法直接下载时，使用登录浏览器提取可见图片。
-- 重新上传图片并替换为目标文档中的新 token。
-- 对比源文档和副本，输出保真度检查结果。
+- 克隆前盘点源文档块类型，附件、画板、电子表格等不可静默丢失，逐项交代去向。
+- 图片无法直接下载时，使用登录浏览器提取可见图片，缺图定点补抓。
+- 显式 token 映射重传图片，画板转为静态快照，附件重新插入。
+- 长文档安全分块创建，防止单次 API 调用截断。
+- 对比源文档和副本：代码块、正文（含截断定位）、图片数任一缺口即判失败。
 
 ## 目录
 
@@ -34,6 +36,10 @@
 │   ├── assemble_markdown.py
 │   ├── compare_clone.py
 │   ├── extract_plan.py
+│   ├── inventory_blocks.py
+│   ├── split_markdown.py
+│   ├── install.sh
+│   ├── package.sh
 │   └── validate_skill_package.py
 └── skill/
     └── feishu-doc-clone/
@@ -45,23 +51,23 @@
 
 ```bash
 python3 scripts/validate_skill_package.py --zip
-python3 -m py_compile scripts/assemble_markdown.py scripts/compare_clone.py scripts/extract_plan.py
 python3 scripts/compare_clone.py --help
 ```
 
 ## Skill 安装
 
-Skill 分发包位置：
+SKILL.md 是跨 Agent 通用格式，同一份包可在多个环境使用。
 
-```text
-skill/feishu-doc-clone/feishu-doc-clone.zip
-```
-
-安装到本地 Skill 目录：
+本地 CLI（自动安装到 Claude Code `~/.claude/skills/` 和 Codex `~/.codex/skills/`）：
 
 ```bash
-mkdir -p ~/.codex/skills
-unzip -o skill/feishu-doc-clone/feishu-doc-clone.zip -d ~/.codex/skills/
+bash scripts/install.sh
+```
+
+上传类平台（claude.ai Skills、WorkBuddy 等）：上传分发包
+
+```bash
+bash scripts/package.sh   # 重建 skill/feishu-doc-clone/feishu-doc-clone.zip
 ```
 
 ## License
