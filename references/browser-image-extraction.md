@@ -2,6 +2,8 @@
 
 Use this reference when `docs +media-download` or `docs +create` cannot read source image tokens, but the logged-in browser can display the source document.
 
+Any browser automation that can run JavaScript in a logged-in page works: MCP Playwright, a CDP proxy, or the platform's built-in browser tool. The snippets below are plain page JavaScript; adapt only the invocation wrapper to your environment.
+
 ## Playwright Flow
 
 1. Open the source document in a logged-in browser:
@@ -89,4 +91,29 @@ Use this reference when `docs +media-download` or `docs +create` cannot read sou
    done
    ```
 
-If browser extraction returns fewer images than the plan, scroll directly near each missing image block and inspect `img.docx-image` elements again. Feishu lazy-renders aggressively.
+## Targeted retry for missing tokens
+
+Feishu lazy-renders aggressively; a single scroll pass often misses images. Never stop at "fewer than planned" — compare the extracted set against the plan's `upload_tokens` and retry each missing token individually:
+
+```js
+async (missingTokens) => {
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const found = {};
+  for (const token of missingTokens) {
+    // Feishu image containers carry the token in data attributes or child img src
+    const holder = [...document.querySelectorAll("[data-token], .docx-image-block")]
+      .find((el) => (el.dataset.token || el.innerHTML).includes(token));
+    if (holder) {
+      holder.scrollIntoView({ block: "center" });
+      await wait(1200);
+    }
+    for (const img of document.querySelectorAll("img.docx-image")) {
+      const src = img.currentSrc || img.src || "";
+      if (src.includes(token)) found[token] = src;
+    }
+  }
+  return found;
+}
+```
+
+Repeat the fetch step for newly visible tokens. The loop is done only when extracted count equals the plan's `upload_tokens` count, or remaining tokens are confirmed unreachable — in that case list them explicitly as gaps in the final report instead of proceeding silently.

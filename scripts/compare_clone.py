@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Compare source and final Feishu fetch JSON for clone-sensitive drift."""
+"""Compare source and final Feishu fetch JSON for clone-sensitive drift.
+
+Exits non-zero when the clone is incomplete: code blocks differ, text differs
+(including truncation), or the final doc carries fewer images than expected.
+Counts for every special block kind are reported so no loss stays silent.
+"""
 
 import argparse
 import json
@@ -8,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 
-IMAGE_RE = re.compile(r'<image token="[^"]*" width="[^"]*" height="[^"]*" align="[^"]*"\s*/>')
+TAG_RE = re.compile(r"<(image|file|whiteboard|sheet|bitable|iframe)\b[^<>]*?/?>", re.IGNORECASE)
 CODE_RE = re.compile(r"```([^\n]*)\n([\s\S]*?)```")
 
 
@@ -25,14 +30,50 @@ def code_blocks(markdown: str) -> list[dict[str, str]]:
     return [{"lang": m.group(1), "body": m.group(2)} for m in CODE_RE.finditer(markdown)]
 
 
-def normalized(markdown: str) -> str:
-    return IMAGE_RE.sub("<IMAGE>", markdown).replace("\r\n", "\n")
+def kind_counts(markdown: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for match in TAG_RE.finditer(markdown):
+        kind = match.group(1).lower()
+        counts[kind] = counts.get(kind, 0) + 1
+    return counts
+
+
+def stripped(markdown: str) -> str:
+    text = TAG_RE.sub("", markdown).replace("\r\n", "\n")
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def first_divergence(a: str, b: str) -> dict[str, Any]:
+    limit = min(len(a), len(b))
+    pos = next((i for i in range(limit) if a[i] != b[i]), limit)
+    if pos == limit and len(a) == len(b):
+        return {}
+    info: dict[str, Any] = {
+        "position": pos,
+        "source_context": a[max(0, pos - 60) : pos + 60],
+        "final_context": b[max(0, pos - 60) : pos + 60],
+    }
+    if pos == limit and len(b) < len(a):
+        info["truncated"] = f"final text ends at char {len(b)} of {len(a)} (likely truncated)"
+    return info
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", required=True, help="Source docs +fetch JSON")
     parser.add_argument("--final", required=True, help="Final docs +fetch JSON")
+    parser.add_argument(
+        "--expect-images",
+        type=int,
+        default=None,
+        help="Expected image count in final doc (default: source image count; "
+        "raise it when whiteboards were snapshotted into images)",
+    )
+    parser.add_argument(
+        "--strict-media",
+        action="store_true",
+        help="Also fail when any non-image kind (file/whiteboard/sheet/bitable/iframe) lost count",
+    )
     args = parser.parse_args()
 
     source = load_markdown(args.source)
@@ -50,22 +91,44 @@ def main() -> None:
                     "final_lang": dst["lang"],
                     "source_tail": src["body"][-120:],
                     "final_tail": dst["body"][-120:],
-                    "source_lines": src["body"].split("\n"),
-                    "final_lines": dst["body"].split("\n"),
                 }
             )
 
+    source_counts = kind_counts(source)
+    final_counts = kind_counts(final)
+    source_text = stripped(source)
+    final_text = stripped(final)
+
+    expected_images = args.expect_images if args.expect_images is not None else source_counts.get("image", 0)
+    images_ok = final_counts.get("image", 0) >= expected_images
+    code_ok = len(source_blocks) == len(final_blocks) and not mismatches
+    text_ok = source_text == final_text
+
+    media_gaps = [
+        {"kind": kind, "source": count, "final": final_counts.get(kind, 0)}
+        for kind, count in sorted(source_counts.items())
+        if kind != "image" and final_counts.get(kind, 0) < count
+    ]
+    media_ok = not media_gaps if args.strict_media else True
+
     result = {
-        "source_images": len(IMAGE_RE.findall(source)),
-        "final_images": len(IMAGE_RE.findall(final)),
+        "ok": code_ok and text_ok and images_ok and media_ok,
+        "code_blocks_equal": code_ok,
+        "text_equal": text_ok,
+        "images_ok": images_ok,
+        "expected_images": expected_images,
+        "source_counts": source_counts,
+        "final_counts": final_counts,
         "source_code_blocks": len(source_blocks),
         "final_code_blocks": len(final_blocks),
-        "code_blocks_equal": len(source_blocks) == len(final_blocks) and not mismatches,
-        "normalized_text_equal": normalized(source) == normalized(final),
-        "mismatches": mismatches[:10],
+        "media_gaps": media_gaps,
+        "code_mismatches": mismatches[:10],
     }
+    if not text_ok:
+        result["divergence"] = first_divergence(source_text, final_text)
+
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    if not result["code_blocks_equal"]:
+    if not result["ok"]:
         raise SystemExit(2)
 
 
